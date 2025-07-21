@@ -1,0 +1,8 @@
+pandas
+numpy
+requests
+torch>=2.0.0
+streamlit
+scikit-learn
+python-dotenv
+xgboost

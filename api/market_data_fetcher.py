@@ -1,7 +1,7 @@
 import logging
 import requests
 import pandas as pd
-from typing import Optional
+from typing import Optional, Dict
 import json
 
 logger = logging.getLogger(__name__)
@@ -19,12 +19,24 @@ class MarketDataFetcher:
         {"provider": "xAI", "key": "xai-aMD7Q52h0LUgEzgTTqjec5zmtZOhFF6fj1jkwNKZ2dIeNR8FRkRyFC0fBxGjNz823vjwR9Ty8QrwWaPz", "calls": 0, "limit": 10000}
     ]
     
+    COIN_IDS = {
+        "bitcoin": "Qwsogvtv82FCd",
+        "ethereum": "razxDUgYGNAdQ",
+        "solana": "zNZHO_Sjf",
+        "binancecoin": "WcwrkfNI4FUAe",
+        "xrp": "-l8Mn2pVlRs-p",
+        "cardano": "qzawljRxB5bYu",
+        "dogecoin": "a91GCGd_u96cF",
+        "polkadot": "f0_83tArud7OD",
+        "chainlink": "VLqpJwogdhH4b",
+        "polygon": "9K7H3TJv-3m2f"
+    }
+
     def __init__(self, timeout: int = 10):
         self.timeout = timeout
         self.current_api_index = 0
 
     def _switch_api(self):
-        """Switch to the next API that hasn't exceeded its call limit."""
         for _ in range(len(self.API_KEYS)):
             self.current_api_index = (self.current_api_index + 1) % len(self.API_KEYS)
             current_api = self.API_KEYS[self.current_api_index]
@@ -62,7 +74,8 @@ class MarketDataFetcher:
             return None
 
     def _fetch_coinranking_historical(self, coin_id: str, vs_currency: str, days: int, api_key: str) -> Optional[pd.DataFrame]:
-        endpoint = f"/coin/Qwsogvtv82FCd/history"
+        coin_uuid = self.COIN_IDS.get(coin_id.lower(), "Qwsogvtv82FCd")
+        endpoint = f"/coin/{coin_uuid}/history"
         params = {"timePeriod": f"{days}d", "x-access-token": api_key}
         url = self.COINRANKING_BASE_URL + endpoint
 
@@ -75,11 +88,12 @@ class MarketDataFetcher:
                 logger.warning(f"No historical data from Coinranking for {coin_id}.")
                 return None
             prices = data["data"]["history"]
-            df = pd.DataFrame(prices, columns=["timestamp", "price"])
+            df = pd.DataFrame(prices)
             df["timestamp"] = pd.to_datetime(df["timestamp"], unit="ms")
             df["close"] = df["price"].astype(float)
+            df["volume"] = df.get("volume", 0).astype(float)
             df.set_index("timestamp", inplace=True)
-            df = df[["close"]]
+            df = df[["close", "volume"]]
             logger.info(f"Fetched {len(df)} data points from Coinranking.")
             return df
         except requests.exceptions.RequestException as e:
@@ -113,10 +127,13 @@ class MarketDataFetcher:
                 return None
             df = pd.DataFrame({
                 "timestamp": data["t"],
-                "close": data["c"]
+                "close": data["c"],
+                "volume": data.get("v", [0] * len(data["t"]))
             })
             df["timestamp"] = pd.to_datetime(df["timestamp"], unit="s")
             df.set_index("timestamp", inplace=True)
+            df["close"] = df["close"].astype(float)
+            df["volume"] = df["volume"].astype(float)
             logger.info(f"Fetched {len(df)} data points from Finnhub.")
             return df
         except requests.exceptions.RequestException as e:
@@ -151,8 +168,9 @@ class MarketDataFetcher:
             df = pd.DataFrame.from_dict(time_series, orient="index")
             df["timestamp"] = pd.to_datetime(df.index)
             df["close"] = df["4. close"].astype(float)
+            df["volume"] = df.get("5. volume", 0).astype(float)
             df.set_index("timestamp", inplace=True)
-            df = df[["close"]]
+            df = df[["close", "volume"]]
             df = df.sort_index()
             cutoff_date = pd.Timestamp.now() - pd.Timedelta(days=days)
             df = df[df.index >= cutoff_date]
@@ -176,11 +194,11 @@ class MarketDataFetcher:
             "messages": [
                 {
                     "role": "system",
-                    "content": "You are a financial data assistant. Provide historical price data for a cryptocurrency in JSON format."
+                    "content": "Provide historical price data in JSON format."
                 },
                 {
                     "role": "user",
-                    "content": f"Fetch historical price data for {coin_id} in {vs_currency} for the past {days} days, hourly interval, in JSON format with timestamp (Unix ms) and close price."
+                    "content": f"Fetch historical price data for {coin_id} in {vs_currency} for the past {days} days, hourly interval, in JSON format with timestamp (Unix ms), close price, and volume."
                 }
             ],
             "model": "grok-3-latest",
@@ -201,10 +219,11 @@ class MarketDataFetcher:
             if not isinstance(prices, list) or not prices:
                 logger.warning(f"Invalid historical data format from xAI for {coin_id}.")
                 return None
-            df = pd.DataFrame(prices, columns=["timestamp", "close"])
+            df = pd.DataFrame(prices)
             df["timestamp"] = pd.to_datetime(df["timestamp"], unit="ms")
             df.set_index("timestamp", inplace=True)
             df["close"] = df["close"].astype(float)
+            df["volume"] = df.get("volume", 0).astype(float)
             logger.info(f"Fetched {len(df)} data points from xAI.")
             return df
         except requests.exceptions.RequestException as e:
@@ -212,4 +231,54 @@ class MarketDataFetcher:
             return None
         except (KeyError, ValueError, json.JSONDecodeError) as e:
             logger.error(f"Failed to parse xAI response: {e}")
+            return None
+
+    def fetch_sentiment(self, coin_id: str) -> Optional[Dict]:
+        if not self._switch_api():
+            return None
+        current_api = self.API_KEYS[self.current_api_index]
+        if current_api["provider"] != "xAI":
+            logger.info("Sentiment analysis only available via xAI API.")
+            return None
+        api_key = current_api["key"]
+        current_api["calls"] += 1
+
+        endpoint = "/chat/completions"
+        url = self.XAI_BASE_URL + endpoint
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {api_key}"
+        }
+        payload = {
+            "messages": [
+                {
+                    "role": "system",
+                    "content": "Provide a sentiment analysis for a cryptocurrency with confidence score and a brief news snippet."
+                },
+                {
+                    "role": "user",
+                    "content": f"Analyze the market sentiment for {coin_id}. Return JSON with 'sentiment' ('bullish', 'bearish', 'neutral'), 'confidence' (0-1), and 'news_snippet' (brief text)."
+                }
+            ],
+            "model": "grok-3-latest",
+            "stream": False,
+            "temperature": 0.5
+        }
+
+        try:
+            logger.info(f"Fetching sentiment for {coin_id} from xAI...")
+            response = requests.post(url, headers=headers, json=payload, timeout=self.timeout)
+            response.raise_for_status()
+            data = response.json()
+            if "choices" not in data or not data["choices"]:
+                logger.warning(f"No sentiment data from xAI for {coin_id}.")
+                return None
+            content = json.loads(data["choices"][0]["message"]["content"])
+            logger.info(f"Sentiment for {coin_id}: {content['sentiment']}")
+            return content
+        except requests.exceptions.RequestException as e:
+            logger.error(f"xAI sentiment request failed: {e}")
+            return None
+        except (KeyError, ValueError, json.JSONDecodeError) as e:
+            logger.error(f"Failed to parse xAI sentiment response: {e}")
             return None

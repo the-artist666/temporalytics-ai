@@ -1,55 +1,46 @@
 Temporalytics AI
-A professional Streamlit app for cryptocurrency analysis, supporting 10 coins, advanced indicators, portfolio tracking, multi-scenario predictions, and a Grok-like financial advisor, with a grok.com-inspired design.
-Setup Instructions
+A Streamlit-based cryptocurrency trading advisor that fetches real-time data from CoinGecko's Pro API, provides advanced technical analysis, and offers AI-driven trading recommendations with simulated gains.
+Installation
 
-Clone the repository:git clone https://github.com/your-username/temporalytics-ai.git
+Clone the repository:
+git clone https://github.com/your-username/temporalytics-ai.git
 cd temporalytics-ai
 
 
-Create and activate a virtual environment:python3 -m venv venv
+Create a .env file with your CoinGecko API key:
+COINGECKO_API_KEY=your-api-key-here
+
+
+Create a virtual environment:
+python -m venv venv
 source venv/bin/activate  # On Windows: venv\Scripts\activate
 
 
-Install dependencies:pip install -r requirements.txt
+Install dependencies:
+pip install -r requirements.txt
 
 
-Install WeasyPrint dependencies (Ubuntu):sudo apt-get install libpango-1.0-0 libpangocairo-1.0-0
-
-
-Train models and generate data:python train.py
-
-
-Run the app locally:streamlit run app.py
+Run the app:
+streamlit run app.py
 
 
 
-Deployment
-Deploy to Streamlit Community Cloud:
+Deployment on Streamlit Cloud
 
-Push to GitHub, including data/ and models/:git add .
-git commit -m "Initial commit"
-git push origin main
+Push the repository to GitHub.
+Add your CoinGecko API key as a secret in Streamlit Cloud:
+Go to "Manage app" > "Secrets" and add:COINGECKO_API_KEY = "your-api-key-here"
 
 
-At share.streamlit.io, deploy app.py from main branch.
-Set app URL (e.g., temporalytics-ai-yourname).
-Reboot if updating.
+
+
+In Streamlit Cloud, create a new app, link to your repository, and enable "Use custom Dockerfile."
+Reboot the app to deploy.
 
 Features
 
-Supported Coins: Bitcoin, Ethereum, Solana, Binance Coin, XRP, Cardano, Dogecoin, Polkadot, Chainlink, Polygon.
-Pre-Loaded Data: Historical data with indicators and predictions.
-Indicators: RSI, Stochastic, MACD, Bollinger Bands, Ichimoku Cloud, Fibonacci, ADX, Volatility, Sharpe Ratio, Correlation.
-Portfolio Tracker: Track holdings and total value.
-Market Overview: Real-time prices and trends.
-Predictions: Bullish, Neutral, Bearish scenarios with MAE and R².
-Financial Advisor: AI-driven trading recommendations with risk management (stop-loss, take-profit, position sizing).
-Export: Download analysis as PDF.
-Design: Professional, grok.com-inspired UI.
-
-Troubleshooting
-
-API Errors: Skip xAI with API_KEYS[3]["calls"] = 10000 in API modules.
-Data Missing: Run python train.py.
-WeasyPrint Issues: Install dependencies or skip PDF export.
-
+Real-time data via CoinGecko Pro API.
+TDM hybrid metrics (Trend, Direction, Momentum) with accuracy.
+Advanced visualizations (candlestick, volume profile, correlation heatmap).
+Short- and long-term trading recommendations with simulated gains.
+Risk management: 5% stop-loss, 10% take-profit, max 10% position size.

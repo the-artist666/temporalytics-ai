@@ -1,0 +1,64 @@
+body {
+    background-color: #1a1a1a;
+    color: #ffffff;
+    font-family: 'Inter', sans-serif;
+}
+
+.title {
+    font-size: 3.5rem;
+    font-weight: 800;
+    text-align: center;
+    color: #ffffff;
+    text-shadow: 0 0 15px rgba(59, 130, 246, 0.7);
+    animation: pulse 3s infinite;
+}
+
+.subtitle {
+    font-size: 1.5rem;
+    text-align: center;
+    color: #d1d5db;
+    margin-bottom: 2.5rem;
+}
+
+.section-header {
+    font-size: 2rem;
+    font-weight: 700;
+    color: #3b82f6;
+    margin-top: 3rem;
+    margin-bottom: 1.5rem;
+}
+
+.metric-card {
+    background-color: #2d3748;
+    padding: 2rem;
+    border-radius: 0.75rem;
+    box-shadow: 0 0 15px rgba(59, 130, 246, 0.5);
+    text-align: center;
+    margin-bottom: 1.5rem;
+    transition: transform 0.3s ease;
+}
+
+.metric-card:hover {
+    transform: scale(1.05);
+}
+
+.metric-value {
+    font-size: 2.5rem;
+    font-weight: bold;
+    color: #3b82f6;
+}
+
+.metric-source {
+    font-size: 1rem;
+    color: #9ca3af;
+}
+
+.error {
+    color: #ef4444;
+    font-weight: 600;
+}
+
+.st-expander {
+    background-color: #2d3748;
+    border-radius: 0.5rem;
+    box-shadow: 0 0 10px rgba(59

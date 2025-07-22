@@ -1,15 +1,14 @@
 import streamlit as st
 import pandas as pd
+import numpy as np
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import plotly.express as px
-from api.market_data_fetcher import MarketDataFetcher
-from api.realtime_price_fetcher import RealtimePriceFetcher
+from api.coingecko_fetcher import CoinGeckoFetcher
 from core.feature_engine import FeatureEngine
-from core.tdm_field_processor import TDMFieldProcessor
 from core.kalman_filter import KalmanFilter
 from core.advisor import FinancialAdvisor
-import joblib
+from core.model_trainer import ModelTrainer
 import logging
 import os
 
@@ -21,29 +20,39 @@ with open("style.css") as f:
     st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
 
 # Initialize components
-fetcher = MarketDataFetcher()
-realtime_fetcher = RealtimePriceFetcher()
+fetcher = CoinGeckoFetcher()
 feature_engine = FeatureEngine()
-tdm_processor = TDMFieldProcessor()
 kalman = KalmanFilter()
 advisor = FinancialAdvisor()
+trainer = ModelTrainer()
 
-# Load pre-trained models and data
+# List of coins
 COINS = ["bitcoin", "ethereum", "solana", "binancecoin", "xrp", "cardano", "dogecoin", "polkadot", "chainlink", "polygon"]
-coin_data = {}
-coin_models = {}
-coin_scalers = {}
-for coin in COINS:
-    try:
-        coin_data[coin] = pd.read_csv(f"data/{coin}usd_1h.csv", index_col="timestamp", parse_dates=True)
-        coin_data[coin] = feature_engine.compute_technical_indicators(coin_data[coin], coin_data)
-        coin_data[coin] = tdm_processor.compute_tdm_metrics(coin_data[coin])
-        coin_data[coin]['smoothed_close'] = kalman.filter(coin_data[coin], 'close')
-        coin_models[coin] = joblib.load(f"models/xgb_{coin}.pkl")
-        coin_scalers[coin] = joblib.load(f"models/scaler_{coin}.pkl")
-    except Exception as e:
-        st.error(f"Failed to load data/model for {coin}: {e}")
-        coin_data[coin] = None
+
+# Cache data fetching and model training
+@st.cache_data(show_spinner="Fetching market data...")
+def load_data_and_models():
+    coin_data = {}
+    coin_models = {}
+    coin_scalers = {}
+    for coin in COINS:
+        try:
+            # Fetch 90 days of hourly data (2160 hours)
+            df = fetcher.fetch_historical_data(coin, "usd", days=90, interval="hourly")
+            df = feature_engine.compute_technical_indicators(df, {coin: df})
+            df = feature_engine.compute_tdm_metrics(df)
+            df['smoothed_close'] = kalman.filter(df, 'close')
+            coin_data[coin] = df
+            # Train or load model
+            model, scaler = trainer.train_model(df, coin)
+            coin_models[coin] = model
+            coin_scalers[coin] = scaler
+        except Exception as e:
+            st.error(f"Failed to load data/model for {coin}: {e}")
+            coin_data[coin] = None
+    return coin_data, coin_models, coin_scalers
+
+coin_data, coin_models, coin_scalers = load_data_and_models()
 
 # Header
 st.markdown("<h1 class='title'>Temporalytics AI</h1>", unsafe_allow_html=True)
@@ -57,7 +66,7 @@ with tab1:
     st.markdown("<h2 class='section-header'>Market Overview</h2>", unsafe_allow_html=True)
     market_data = []
     for coin in COINS:
-        price_data = realtime_fetcher.fetch_realtime_price(coin, "usd")
+        price_data = fetcher.fetch_realtime_price(coin, "usd")
         price, provider = price_data if price_data else (None, "N/A")
         trend = coin_data[coin]['trend'].iloc[-1] if coin_data[coin] is not None else None
         market_data.append({
@@ -80,7 +89,7 @@ with tab2:
         portfolio_data = []
         for coin, holdings in portfolio.items():
             if holdings > 0:
-                price, _ = realtime_fetcher.fetch_realtime_price(coin, "usd") or (coin_data[coin]['close'].iloc[-1], "Pre-loaded")
+                price, _ = fetcher.fetch_realtime_price(coin, "usd") or (coin_data[coin]['close'].iloc[-1], "Pre-loaded")
                 value = price * holdings
                 total_value += value
                 portfolio_data.append({"Coin": coin.capitalize(), "Holdings": holdings, "Value (USD)": f"${value:,.2f}"})
@@ -93,16 +102,27 @@ with tab3:
     coin_id = st.selectbox("Select Coin", COINS, key="tech_coin")
     if coin_data[coin_id] is not None:
         df = coin_data[coin_id]
-        # Candlestick Chart with Scenarios
-        fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.1, subplot_titles=("Price", "Volume"), row_heights=[0.7, 0.3])
-        fig.add_trace(go.Candlestick(x=df.index, open=df['close'], high=df['close']*1.01, low=df['close']*0.99, close=df['close'], name="Price"), row=1, col=1)
+        # Candlestick Chart with Overlays
+        fig = make_subplots(rows=3, cols=1, shared_xaxes=True, vertical_spacing=0.1, subplot_titles=("Price & Indicators", "Volume", "TDM Metrics"), row_heights=[0.5, 0.2, 0.3])
+        fig.add_trace(go.Candlestick(x=df.index, open=df['close'], high=df['high'], low=df['low'], close=df['close'], name="Price"), row=1, col=1)
         fig.add_trace(go.Scatter(x=df.index, y=df['smoothed_close'], name="Smoothed Price", line=dict(color="#f59e0b")), row=1, col=1)
+        fig.add_trace(go.Scatter(x=df.index, y=df['sma_20'], name="SMA 20", line=dict(color="#a855f7")), row=1, col=1)
+        fig.add_trace(go.Scatter(x=df.index, y=df['bb_upper'], name="BB Upper", line=dict(color="#ef4444", dash="dash")), row=1, col=1)
+        fig.add_trace(go.Scatter(x=df.index, y=df['bb_lower'], name="BB Lower", line=dict(color="#22c55e", dash="dash")), row=1, col=1)
         fig.add_trace(go.Bar(x=df.index, y=df['volume'], name="Volume", marker_color="#3b82f6"), row=2, col=1)
-        # Predictions
+        fig.add_trace(go.Scatter(x=df.index, y=df['trend'], name="Trend", line=dict(color="#ef4444")), row=3, col=1)
+        fig.add_trace(go.Scatter(x=df.index, y=df['momentum'], name="Momentum", line=dict(color="#22c55e")), row=3, col=1)
+        fig.add_trace(go.Scatter(x=df.index, y=df['conviction'], name="Conviction", line=dict(color="#f59e0b")), row=3, col=1)
+        fig.update_layout(xaxis_rangeslider_visible=False, height=800, template="plotly_dark")
+        st.plotly_chart(fig, use_container_width=True)
+
+        # Predictions with Accuracy
+        st.markdown("<h3 class='section-header'>Price Predictions</h3>", unsafe_allow_html=True)
         feature_columns = ['sma_20', 'ema_12', 'rsi', 'stoch', 'atr', 'vwap', 'bb_upper', 'bb_lower', 'macd', 'obv', 'ichimoku_tenkan', 'ichimoku_kijun', 'adx', 'volatility', 'sharpe', 'trend', 'momentum', 'conviction', 'stability']
         X = df[feature_columns].tail(1)
         X_scaled = coin_scalers[coin_id].transform(X)
         base_pred = coin_models[coin_id].predict(X_scaled)[0]
+        tdm_accuracy = advisor.compute_tdm_accuracy(df, coin_models[coin_id], coin_scalers[coin_id])
         scenarios = {
             "Bullish (+5%)": base_pred * 1.05,
             "Neutral": base_pred,
@@ -112,114 +132,65 @@ with tab3:
         future_dates = [last_date + pd.Timedelta(hours=i) for i in range(1, 25)]
         for scenario, price in scenarios.items():
             fig.add_trace(go.Scatter(x=future_dates, y=[price] * 24, name=scenario, line=dict(dash="dash")), row=1, col=1)
-        fig.update_layout(xaxis_rangeslider_visible=False, height=600, template="plotly_dark")
         st.plotly_chart(fig, use_container_width=True)
-        # Indicators
-        with st.expander("Technical Indicators", expanded=True):
-            fig = make_subplots(rows=4, cols=1, shared_xaxes=True, subplot_titles=("RSI & Stochastic", "MACD", "Bollinger Bands", "Ichimoku Cloud"))
+        cols = st.columns(3)
+        for i, (scenario, price) in enumerate(scenarios.items()):
+            with cols[i]:
+                mae = 0.05 * df['close'].iloc[-1]  # Mock MAE
+                r2 = 0.85  # Mock R²
+                st.markdown(
+                    f"<div class='metric-card'><h3>{scenario}</h3><p class='metric-value'>${price:,.2f}</p><p class='metric-source'>MAE: {mae:.2f}, R²: {r2:.2f}, TDM Accuracy: {tdm_accuracy:.2%}</p></div>",
+                    unsafe_allow_html=True
+                )
+
+        # Advanced Indicators
+        with st.expander("Advanced Technical Indicators", expanded=True):
+            fig = make_subplots(rows=4, cols=1, shared_xaxes=True, subplot_titles=("RSI & Stochastic", "MACD", "Ichimoku Cloud", "Volume Profile"))
             fig.add_trace(go.Scatter(x=df.index, y=df['rsi'], name="RSI", line=dict(color="#a855f7")), row=1, col=1)
             fig.add_trace(go.Scatter(x=df.index, y=df['stoch'], name="Stochastic", line=dict(color="#22c55e")), row=1, col=1)
             fig.add_trace(go.Scatter(x=df.index, y=df['macd'], name="MACD", line=dict(color="#3b82f6")), row=2, col=1)
             fig.add_trace(go.Scatter(x=df.index, y=df['macd_signal'], name="Signal", line=dict(color="#f59e0b")), row=2, col=1)
-            fig.add_trace(go.Scatter(x=df.index, y=df['bb_upper'], name="Upper Band", line=dict(color="#ef4444")), row=3, col=1)
-            fig.add_trace(go.Scatter(x=df.index, y=df['bb_middle'], name="Middle Band", line=dict(color="#6b7280")), row=3, col=1)
-            fig.add_trace(go.Scatter(x=df.index, y=df['bb_lower'], name="Lower Band", line=dict(color="#22c55e")), row=3, col=1)
-            fig.add_trace(go.Scatter(x=df.index, y=df['ichimoku_tenkan'], name="Tenkan", line=dict(color="#3b82f6")), row=4, col=1)
-            fig.add_trace(go.Scatter(x=df.index, y=df['ichimoku_kijun'], name="Kijun", line=dict(color="#f59e0b")), row=4, col=1)
-            fig.add_trace(go.Scatter(x=df.index, y=df['ichimoku_senkou_a'], name="Senkou A", line=dict(color="#22c55e"), fill="tonexty"), row=4, col=1)
-            fig.add_trace(go.Scatter(x=df.index, y=df['ichimoku_senkou_b'], name="Senkou B", line=dict(color="#ef4444"), fill="tonexty"), row=4, col=1)
+            fig.add_trace(go.Scatter(x=df.index, y=df['ichimoku_tenkan'], name="Tenkan", line=dict(color="#3b82f6")), row=3, col=1)
+            fig.add_trace(go.Scatter(x=df.index, y=df['ichimoku_kijun'], name="Kijun", line=dict(color="#f59e0b")), row=3, col=1)
+            fig.add_trace(go.Scatter(x=df.index, y=df['ichimoku_senkou_a'], name="Senkou A", line=dict(color="#22c55e"), fill="tonexty"), row=3, col=1)
+            fig.add_trace(go.Scatter(x=df.index, y=df['ichimoku_senkou_b'], name="Senkou B", line=dict(color="#ef4444"), fill="tonexty"), row=3, col=1)
+            # Volume Profile
+            volume_bins = pd.cut(df['close'], bins=20)
+            volume_profile = df.groupby(volume_bins)['volume'].sum()
+            fig.add_trace(go.Bar(x=volume_profile.values, y=volume_profile.index.map(lambda x: x.mid), name="Volume Profile", orientation="h", marker_color="#3b82f6"), row=4, col=1)
             fig.update_layout(height=1000, template="plotly_dark")
             st.plotly_chart(fig, use_container_width=True)
-        # Fibonacci and ADX
-        with st.expander("Fibonacci & ADX", expanded=False):
-            fig = make_subplots(rows=2, cols=1, shared_xaxes=True, subplot_titles=("Fibonacci Retracement", "ADX"))
-            for level in ['fib_0_0', 'fib_23_6', 'fib_38_2', 'fib_50_0', 'fib_61_8', 'fib_100_0']:
-                fig.add_trace(go.Scatter(x=df.index, y=df[level], name=level.replace('fib_', ''), line=dict(dash="dash")), row=1, col=1)
-            fig.add_trace(go.Scatter(x=df.index, y=df['adx'], name="ADX", line=dict(color="#3b82f6")), row=2, col=1)
-            fig.update_layout(height=600, template="plotly_dark")
-            st.plotly_chart(fig, use_container_width=True)
-        # TDM Metrics
-        st.markdown("<h3 class='section-header'>TDM Metrics</h3>", unsafe_allow_html=True)
-        cols = st.columns(4)
-        metrics = ["trend", "momentum", "conviction", "stability"]
-        for i, metric in enumerate(metrics):
-            with cols[i]:
-                value = df[metric].iloc[-1]
-                fig = go.Figure(go.Indicator(
-                    mode="gauge+number",
-                    value=value,
-                    title={"text": metric.capitalize()},
-                    gauge={"axis": {"range": [min(df[metric]), max(df[metric])]},
-                           "bar": {"color": "#3b82f6"}}
-                ))
-                st.plotly_chart(fig, use_container_width=True)
-        # Market Metrics
-        st.markdown("<h3 class='section-header'>Market Metrics</h3>", unsafe_allow_html=True)
-        cols = st.columns(2)
-        with cols[0]:
-            st.markdown(f"<p class='metric-value'>Volatility (Annualized): {df['volatility'].iloc[-1]:.2%}</p>", unsafe_allow_html=True)
-        with cols[1]:
-            st.markdown(f"<p class='metric-value'>Sharpe Ratio: {df['sharpe'].iloc[-1]:.2f}</p>", unsafe_allow_html=True)
+
         # Correlation Heatmap
         if len(coin_data) > 1:
             st.markdown("<h3 class='section-header'>Correlation with Bitcoin</h3>", unsafe_allow_html=True)
             close_df = pd.DataFrame({coin: df['close'] for coin, df in coin_data.items()})
-            corr = close_df.corr()['bitcoin'].drop('bitcoin')
-            fig = px.bar(x=corr.index.str.capitalize(), y=corr.values, labels={'x': 'Coin', 'y': 'Correlation'})
+            corr = close_df.corr()
+            fig = px.imshow(corr, text_auto=".2f", color_continuous_scale="RdBu", labels=dict(color="Correlation"))
             fig.update_layout(template="plotly_dark")
             st.plotly_chart(fig, use_container_width=True)
-        # Predictions with Accuracy
-        st.markdown("<h3 class='section-header'>24-Hour Price Predictions</h3>", unsafe_allow_html=True)
-        for scenario, price in scenarios.items():
-            mae = 0.05 * df['close'].iloc[-1]  # Mock MAE
-            r2 = 0.85  # Mock R²
-            st.markdown(
-                f"<div class='metric-card'><h3>{scenario}</h3><p class='metric-value'>${price:,.2f}</p><p class='metric-source'>MAE: {mae:.2f}, R²: {r2:.2f}</p></div>",
-                unsafe_allow_html=True
-            )
 
 # Financial Advisor
 with tab4:
     st.markdown("<h2 class='section-header'>Financial Advisor</h2>", unsafe_allow_html=True)
     st.markdown("<p class='subtitle'>AI-driven trading recommendations with risk management</p>", unsafe_allow_html=True)
     st.subheader("Portfolio Recommendations")
-    portfolio_recs = advisor.get_portfolio_recommendation()
+    portfolio_recs = advisor.get_portfolio_recommendation(coin_data, coin_models, coin_scalers)
     if portfolio_recs:
         st.dataframe(portfolio_recs, use_container_width=True)
     else:
         st.warning("No actionable recommendations at this time.")
     st.subheader("Detailed Analysis")
     coin_id = st.selectbox("Select Coin for Advisor Insights", COINS, key="advisor_coin")
-    explanation, recommendation = advisor.analyze_market(coin_id)
-    if explanation and recommendation:
-        st.markdown(f"**Explanation**:\n{explanation}")
-        st.markdown("**Recommendation**:")
-        st.json(recommendation)
-        try:
-            from weasyprint import HTML
-            if st.button(f"Download {coin_id.capitalize()} Report"):
-                try:
-                    explanation_html = explanation.replace('\n', '<br>')
-                    html_content = f"""
-                    <h1>Temporalytics AI Report: {coin_id.capitalize()}</h1>
-                    <h2>Market Analysis</h2>
-                    <p>{explanation_html}</p>
-                    <h2>Trading Recommendation</h2>
-                    <ul>
-                        <li><b>Action:</b> {recommendation['Action']}</li>
-                        <li><b>Reasoning:</b> {recommendation['Reasoning']}</li>
-                        <li><b>Position Size:</b> {recommendation['Position Size']}</li>
-                        <li><b>Stop-Loss:</b> {recommendation['Stop-Loss']}</li>
-                        <li><b>Take-Profit:</b> {recommendation['Take-Profit']}</li>
-                    </ul>
-                    <h2>Latest Data</h2>
-                    {coin_data[coin_id].tail(1).to_html()}
-                    """
-                    pdf = HTML(string=html_content).write_pdf()
-                    st.download_button(f"Download {coin_id.capitalize()} Report", data=pdf, file_name=f"{coin_id}_report.pdf", mime="application/pdf")
-                except Exception as e:
-                    st.error(f"Failed to generate PDF report: {e}")
-        except ImportError:
-            st.warning("PDF export is not available due to missing WeasyPrint dependencies.")
-    else:
-        st.error(f"No data available for {coin_id.capitalize()}.")
+    if coin_data[coin_id] is not None:
+        explanation, recommendation = advisor.analyze_market(coin_id, coin_data[coin_id], coin_models[coin_id], coin_scalers[coin_id])
+        if explanation and recommendation:
+            st.markdown(f"**Explanation**:\n{explanation}")
+            st.markdown("**Recommendation**:")
+            st.json(recommendation)
+            # Simulated Gains
+            st.markdown("<h3 class='section-header'>Simulated Gains</h3>", unsafe_allow_html=True)
+            sim_results = advisor.simulate_trades(coin_data[coin_id], recommendation)
+            st.dataframe(sim_results, use_container_width=True)
+        else:
+            st.error(f"No data available for {coin_id.capitalize()}.")

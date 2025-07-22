@@ -1,6 +1,6 @@
 import logging
 import requests
-from typing import Optional
+from typing import Optional, Tuple
 import json
 
 logger = logging.getLogger(__name__)
@@ -18,12 +18,24 @@ class RealtimePriceFetcher:
         {"provider": "xAI", "key": "xai-aMD7Q52h0LUgEzgTTqjec5zmtZOhFF6fj1jkwNKZ2dIeNR8FRkRyFC0fBxGjNz823vjwR9Ty8QrwWaPz", "calls": 0, "limit": 10000}
     ]
     
+    COIN_IDS = {
+        " bitcoin": "Qwsogvtv82FCd",
+        "ethereum": "razxDUgYGNAdQ",
+        "solana": "zNZHO_Sjf",
+        "binancecoin": "WcwrkfNI4FUAe",
+        "xrp": "-l8Mn2pVlRs-p",
+        "cardano": "qzawljRxB5bYu",
+        "dogecoin": "a91GCGd_u96cF",
+        "polkadot": "f0_83tArud7OD",
+        "chainlink": "VLqpJwogdhH4b",
+        "polygon": "9K7H3TJv-3m2f"
+    }
+
     def __init__(self, timeout: int = 10):
         self.timeout = timeout
         self.current_api_index = 0
 
     def _switch_api(self):
-        """Switch to the next API that hasn't exceeded its call limit."""
         for _ in range(len(self.API_KEYS)):
             self.current_api_index = (self.current_api_index + 1) % len(self.API_KEYS)
             current_api = self.API_KEYS[self.current_api_index]
@@ -37,7 +49,7 @@ class RealtimePriceFetcher:
         self,
         coin_id: str = "bitcoin",
         vs_currency: str = "usd"
-    ) -> Optional[float]:
+    ) -> Optional[Tuple[float, str]]:
         if not self._switch_api():
             return None
 
@@ -48,19 +60,23 @@ class RealtimePriceFetcher:
 
         try:
             if provider == "Coinranking":
-                return self._fetch_coinranking_price(coin_id, vs_currency, api_key)
+                price = self._fetch_coinranking_price(coin_id, vs_currency, api_key)
             elif provider == "Finnhub":
-                return self._fetch_finnhub_price(coin_id, vs_currency, api_key)
+                price = self._fetch_finnhub_price(coin_id, vs_currency, api_key)
             elif provider == "Alpha Vantage":
-                return self._fetch_alpha_vantage_price(coin_id, vs_currency, api_key)
+                price = self._fetch_alpha_vantage_price(coin_id, vs_currency, api_key)
             elif provider == "xAI":
-                return self._fetch_xai_price(coin_id, vs_currency, api_key)
+                price = self._fetch_xai_price(coin_id, vs_currency, api_key)
+            if price is not None:
+                return price, provider
+            return None
         except Exception as e:
             logger.error(f"Failed to fetch price from {provider}: {e}")
             return None
 
     def _fetch_coinranking_price(self, coin_id: str, vs_currency: str, api_key: str) -> Optional[float]:
-        endpoint = "/coin/Qwsogvtv82FCd/price"
+        coin_uuid = self.COIN_IDS.get(coin_id.lower(), "Qwsogvtv82FCd")
+        endpoint = f"/coin/{coin_uuid}/price"
         params = {"x-access-token": api_key}
         url = self.COINRANKING_BASE_URL + endpoint
 
@@ -146,7 +162,7 @@ class RealtimePriceFetcher:
             "messages": [
                 {
                     "role": "system",
-                    "content": "You are a financial data assistant. Provide the current price of a cryptocurrency."
+                    "content": "Provide the current price of a cryptocurrency."
                 },
                 {
                     "role": "user",
@@ -167,7 +183,6 @@ class RealtimePriceFetcher:
                 logger.warning(f"No price data from xAI for {coin_id}.")
                 return None
             content = data["choices"][0]["message"]["content"]
-            # Assuming Grok returns a string like "The current price of Bitcoin in USD is $XXXXX.XX"
             price_str = content.split("$")[-1].split()[0]
             price = float(price_str.replace(",", ""))
             logger.info(f"Fetched real-time price from xAI: {price}")

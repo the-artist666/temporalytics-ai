@@ -12,8 +12,11 @@ from core.advisor import FinancialAdvisor
 import joblib
 import logging
 import os
-from weasyprint import HTML
-from io import BytesIO
+try:
+    from weasyprint import HTML
+except ImportError as e:
+    st.warning("PDF export is disabled due to missing WeasyPrint dependencies.")
+    HTML = None
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -163,57 +166,4 @@ with tab3:
         with cols[1]:
             st.markdown(f"<p class='metric-value'>Sharpe Ratio: {df['sharpe'].iloc[-1]:.2f}</p>", unsafe_allow_html=True)
         # Correlation Heatmap
-        if len(coin_data) > 1:
-            st.markdown("<h3 class='section-header'>Correlation with Bitcoin</h3>", unsafe_allow_html=True)
-            close_df = pd.DataFrame({coin: df['close'] for coin, df in coin_data.items()})
-            corr = close_df.corr()['bitcoin'].drop('bitcoin')
-            fig = px.bar(x=corr.index.str.capitalize(), y=corr.values, labels={'x': 'Coin', 'y': 'Correlation'})
-            fig.update_layout(template="plotly_dark")
-            st.plotly_chart(fig, use_container_width=True)
-        # Predictions with Accuracy
-        st.markdown("<h3 class='section-header'>24-Hour Price Predictions</h3>", unsafe_allow_html=True)
-        for scenario, price in scenarios.items():
-            mae = 0.05 * df['close'].iloc[-1]  # Mock MAE
-            r2 = 0.85  # Mock R²
-            st.markdown(
-                f"<div class='metric-card'><h3>{scenario}</h3><p class='metric-value'>${price:,.2f}</p><p class='metric-source'>MAE: {mae:.2f}, R²: {r2:.2f}</p></div>",
-                unsafe_allow_html=True
-            )
-
-# Financial Advisor
-with tab4:
-    st.markdown("<h2 class='section-header'>Financial Advisor</h2>", unsafe_allow_html=True)
-    st.markdown("<p class='subtitle'>AI-driven trading recommendations with risk management</p>", unsafe_allow_html=True)
-    st.subheader("Portfolio Recommendations")
-    portfolio_recs = advisor.get_portfolio_recommendation()
-    if portfolio_recs:
-        st.dataframe(portfolio_recs, use_container_width=True)
-    else:
-        st.warning("No actionable recommendations at this time.")
-    st.subheader("Detailed Analysis")
-    coin_id = st.selectbox("Select Coin for Advisor Insights", COINS, key="advisor_coin")
-    explanation, recommendation = advisor.analyze_market(coin_id)
-    if explanation and recommendation:
-        st.markdown(f"**Explanation**:\n{explanation}")
-        st.markdown("**Recommendation**:")
-        st.json(recommendation)
-        if st.button(f"Download {coin_id.capitalize()} Report"):
-            html_content = f"""
-            <h1>Temporalytics AI Report: {coin_id.capitalize()}</h1>
-            <h2>Market Analysis</h2>
-            <p>{explanation.replace('\n', '<br>')}</p>
-            <h2>Trading Recommendation</h2>
-            <ul>
-                <li><b>Action:</b> {recommendation['Action']}</li>
-                <li><b>Reasoning:</b> {recommendation['Reasoning']}</li>
-                <li><b>Position Size:</b> {recommendation['Position Size']}</li>
-                <li><b>Stop-Loss:</b> {recommendation['Stop-Loss']}</li>
-                <li><b>Take-Profit:</b> {recommendation['Take-Profit']}</li>
-            </ul>
-            <h2>Latest Data</h2>
-            {coin_data[coin_id].tail(1).to_html()}
-            """
-            pdf = HTML(string=html_content).write_pdf()
-            st.download_button(f"Download {coin_id.capitalize()} Report", data=pdf, file_name=f"{coin_id}_report.pdf", mime="application/pdf")
-    else:
-        st.error(f"No data available for {coin_id.capitalize()}.")
+        if len(coin_data

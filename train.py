@@ -1,84 +1,67 @@
 import pandas as pd
 import numpy as np
-from sklearn.preprocessing import MinMaxScaler
+from sklearn.preprocessing import StandardScaler
 from xgboost import XGBRegressor
-import pickle
-import logging
-import os
 from api.market_data_fetcher import MarketDataFetcher
 from core.feature_engine import FeatureEngine
-from core.kalman_filter import KalmanFilter
+from core.tdm_field_processor import TDMFieldProcessor
+import joblib
+import logging
+import os
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-COIN_ID = "bitcoin"
-CURRENCY = "usd"
-DAYS = 90
-FEATURE_COLS = ['close', 'MA_short', 'MA_long', 'EMA', 'Volatility', 'RSI', 'Stoch_K', 'Stoch_D', 'ATR', 'VWAP']
-TARGET_COL = 'close'
-SEQUENCE_LENGTH = 30
-DATA_DIR = "data"
-MODELS_DIR = "models"
-DATA_FILE = os.path.join(DATA_DIR, f"{COIN_ID}_{CURRENCY}_{DAYS}d.csv")
-MODEL_FILE = os.path.join(MODELS_DIR, "xgb_predictor.pkl")
-SCALER_FILE = os.path.join(MODELS_DIR, "scaler.pkl")
-
-def create_sequences(data, seq_length):
-    xs, ys = [], []
-    for i in range(len(data) - seq_length):
-        x = data[i:(i + seq_length), :-1]
-        y = data[i + seq_length, -1]
-        xs.append(x.flatten())
-        ys.append(y)
-    return np.array(xs), np.array(ys)
-
-def main():
-    os.makedirs(DATA_DIR, exist_ok=True)
-    os.makedirs(MODELS_DIR, exist_ok=True)
-
-    logging.info("Fetching Data...")
+def train_model():
     fetcher = MarketDataFetcher()
-    df = fetcher.fetch_historical_data(COIN_ID, CURRENCY, DAYS)
-    if df is None:
-        logging.error("Failed to fetch data. Exiting.")
-        return
-    df.to_csv(DATA_FILE)
-
-    logging.info("Applying Kalman Filter...")
-    kalman = KalmanFilter()
-    df['close'] = kalman.filter_series(df['close'].values)
-
-    logging.info("Generating Features...")
     feature_engine = FeatureEngine()
-    df_features = feature_engine.generate_features(df)
-
-    cols = [col for col in FEATURE_COLS if col != TARGET_COL] + [TARGET_COL]
-    df_model_data = df_features[cols]
-    scaler = MinMaxScaler(feature_range=(-1, 1))
-    scaled_data = scaler.fit_transform(df_model_data)
-
-    with open(SCALER_FILE, 'wb') as f:
-        pickle.dump(scaler, f)
-    logging.info(f"Scaler saved to {SCALER_FILE}")
-
-    X, y = create_sequences(scaled_data, SEQUENCE_LENGTH)
-    logging.info(f"Created {len(X)} sequences for training.")
-
-    logging.info("Training XGBoost Model...")
-    model = XGBRegressor(
-        n_estimators=100,
-        max_depth=5,
-        learning_rate=0.1,
-        objective='reg:squarederror',
-        random_state=42
-    )
-    model.fit(X, y)
-    logging.info("Model training completed.")
-
-    logging.info("Saving Model...")
-    with open(MODEL_FILE, 'wb') as f:
-        pickle.dump(model, f)
-    logging.info(f"Model saved to {MODEL_FILE}")
+    tdm_processor = TDMFieldProcessor()
+    
+    # Fetch historical data
+    df = fetcher.fetch_historical_data(coin_id="bitcoin", vs_currency="usd", days=90)
+    if df is None or df.empty:
+        logger.error("Failed to fetch historical data.")
+        return
+    
+    # Compute features
+    df = feature_engine.compute_technical_indicators(df)
+    if df is None:
+        logger.error("Failed to compute technical indicators.")
+        return
+    
+    df = tdm_processor.compute_tdm_metrics(df)
+    if df is None:
+        logger.error("Failed to compute TDM metrics.")
+        return
+    
+    # Prepare features and target
+    feature_columns = ['sma_20', 'ema_12', 'rsi', 'stoch', 'atr', 'vwap', 'trend', 'momentum', 'conviction', 'stability']
+    X = df[feature_columns]
+    y = df['close'].shift(-1)  # Predict next hour's price
+    
+    # Drop NaN values
+    valid_idx = X.dropna().index.intersection(y.dropna().index)
+    X = X.loc[valid_idx]
+    y = y.loc[valid_idx]
+    
+    # Scale features
+    scaler = StandardScaler()
+    X_scaled = scaler.fit_transform(X)
+    
+    # Train model
+    model = XGBRegressor(n_estimators=100, learning_rate=0.1, max_depth=5, random_state=42)
+    model.fit(X_scaled, y)
+    
+    # Save model and scaler
+    os.makedirs("models", exist_ok=True)
+    joblib.dump(model, "models/xgb_predictor.pkl")
+    joblib.dump(scaler, "models/scaler.pkl")
+    
+    # Save data for reference
+    os.makedirs("data", exist_ok=True)
+    df.to_csv("data/btcusd_1h.csv")
+    
+    logger.info("Model training completed and saved.")
 
 if __name__ == "__main__":
-    main()
+    train_model()

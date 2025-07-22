@@ -12,11 +12,6 @@ from core.advisor import FinancialAdvisor
 import joblib
 import logging
 import os
-try:
-    from weasyprint import HTML
-except ImportError as e:
-    st.warning("PDF export is disabled due to missing WeasyPrint dependencies.")
-    HTML = None
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -200,28 +195,31 @@ with tab4:
         st.markdown(f"**Explanation**:\n{explanation}")
         st.markdown("**Recommendation**:")
         st.json(recommendation)
-        if HTML is not None and st.button(f"Download {coin_id.capitalize()} Report"):
-            try:
-                html_content = f"""
-                <h1>Temporalytics AI Report: {coin_id.capitalize()}</h1>
-                <h2>Market Analysis</h2>
-                <p>{explanation.replace('\n', '<br>')}</p>
-                <h2>Trading Recommendation</h2>
-                <ul>
-                    <li><b>Action:</b> {recommendation['Action']}</li>
-                    <li><b>Reasoning:</b> {recommendation['Reasoning']}</li>
-                    <li><b>Position Size:</b> {recommendation['Position Size']}</li>
-                    <li><b>Stop-Loss:</b> {recommendation['Stop-Loss']}</li>
-                    <li><b>Take-Profit:</b> {recommendation['Take-Profit']}</li>
-                </ul>
-                <h2>Latest Data</h2>
-                {coin_data[coin_id].tail(1).to_html()}
-                """
-                pdf = HTML(string=html_content).write_pdf()
-                st.download_button(f"Download {coin_id.capitalize()} Report", data=pdf, file_name=f"{coin_id}_report.pdf", mime="application/pdf")
-            except Exception as e:
-                st.error(f"Failed to generate PDF report: {e}")
-        elif HTML is None:
-            st.warning("PDF export is not available due to missing dependencies.")
+        try:
+            from weasyprint import HTML
+            if st.button(f"Download {coin_id.capitalize()} Report"):
+                try:
+                    explanation_html = explanation.replace('\n', '<br>')
+                    html_content = f"""
+                    <h1>Temporalytics AI Report: {coin_id.capitalize()}</h1>
+                    <h2>Market Analysis</h2>
+                    <p>{explanation_html}</p>
+                    <h2>Trading Recommendation</h2>
+                    <ul>
+                        <li><b>Action:</b> {recommendation['Action']}</li>
+                        <li><b>Reasoning:</b> {recommendation['Reasoning']}</li>
+                        <li><b>Position Size:</b> {recommendation['Position Size']}</li>
+                        <li><b>Stop-Loss:</b> {recommendation['Stop-Loss']}</li>
+                        <li><b>Take-Profit:</b> {recommendation['Take-Profit']}</li>
+                    </ul>
+                    <h2>Latest Data</h2>
+                    {coin_data[coin_id].tail(1).to_html()}
+                    """
+                    pdf = HTML(string=html_content).write_pdf()
+                    st.download_button(f"Download {coin_id.capitalize()} Report", data=pdf, file_name=f"{coin_id}_report.pdf", mime="application/pdf")
+                except Exception as e:
+                    st.error(f"Failed to generate PDF report: {e}")
+        except ImportError:
+            st.warning("PDF export is not available due to missing WeasyPrint dependencies.")
     else:
         st.error(f"No data available for {coin_id.capitalize()}.")

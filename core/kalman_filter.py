@@ -13,7 +13,6 @@ class KalmanFilter:
         self.estimate_error = 1.0
 
     def filter(self, df: pd.DataFrame, column: str = 'close') -> Optional[pd.Series]:
-        """Apply Kalman filter to smooth the specified column."""
         try:
             if df is None or df.empty or column not in df.columns:
                 logger.error("Invalid DataFrame or column.")
@@ -21,15 +20,11 @@ class KalmanFilter:
 
             smoothed = []
             for measurement in df[column]:
-                # Prediction
                 prior_estimate = self.estimate
                 prior_error = self.estimate_error + self.process_variance
-                
-                # Update
                 kalman_gain = prior_error / (prior_error + self.measurement_variance)
                 self.estimate = prior_estimate + kalman_gain * (measurement - prior_estimate)
                 self.estimate_error = (1 - kalman_gain) * prior_error
-                
                 smoothed.append(self.estimate)
             
             logger.info(f"Applied Kalman filter to {column}.")

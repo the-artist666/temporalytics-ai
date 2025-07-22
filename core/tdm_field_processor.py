@@ -1,43 +1,39 @@
+import pandas as pd
 import numpy as np
+from typing import Optional
 import logging
-from typing import Dict
 
 logger = logging.getLogger(__name__)
 
 class TDMFieldProcessor:
-    def __init__(self, time_scale: float = 1.0):
-        self.time_scale = time_scale
-        logger.info("TDM Field Processor initialized.")
+    def __init__(self):
+        pass
 
-    def get_symbolic_pattern(self, prices: np.ndarray, volatility: np.ndarray) -> str:
-        if len(prices) != len(volatility):
-            raise ValueError("Prices and volatility arrays must have the same length.")
-        
-        gradients = np.gradient(prices)
-        codes = []
-        for i, g in enumerate(gradients):
-            threshold = volatility[i]
-            if g > threshold:
-                codes.append("U")
-            elif g > 0:
-                codes.append("u")
-            elif g < -threshold:
-                codes.append("D")
-            elif g < 0:
-                codes.append("d")
-            else:
-                codes.append("S")
-        return ''.join(codes)
+    def compute_tdm_metrics(self, df: pd.DataFrame) -> Optional[pd.DataFrame]:
+        """Compute TDM (Trend, Dynamics, Momentum) metrics."""
+        try:
+            if df is None or df.empty:
+                logger.error("Input DataFrame is None or empty.")
+                return None
 
-    def calculate_field_metrics(self, pattern: str) -> Dict[str, float]:
-        length = len(pattern) + 1e-8
-        strong_up = pattern.count("U")
-        weak_up = pattern.count("u")
-        strong_down = pattern.count("D")
-        weak_down = pattern.count("d")
-        stable = pattern.count("S")
-        momentum = (strong_up + weak_up - strong_down - weak_down) / length
-        conviction = (strong_up + strong_down) / (weak_up + weak_down + 1e-8)
-        stability = stable / length
-        logger.debug(f"Calculated TDM metrics: Momentum={momentum:.3f}, Conviction={conviction:.3f}, Stability={stability:.3f}")
-        return {"momentum": momentum, "conviction": conviction, "stability": stability}
+            df = df.copy()
+            
+            # Trend: Difference between short-term and long-term EMA
+            df['trend'] = df['ema_12'] - df['close'].ewm(span=50, adjust=False).mean()
+            
+            # Momentum: Rate of change of returns
+            df['momentum'] = df['returns'].diff().rolling(window=14).mean()
+            
+            # Conviction: Combination of RSI and Stochastic
+            df['conviction'] = (df['rsi'] + df['stoch']) / 2
+            
+            # Stability: Inverse of ATR
+            df['stability'] = 1 / df['atr']
+            
+            df.dropna(inplace=True)
+            logger.info("Computed TDM metrics: Trend, Momentum, Conviction, Stability.")
+            return df
+
+        except Exception as e:
+            logger.error(f"Failed to compute TDM metrics: {e}")
+            return None

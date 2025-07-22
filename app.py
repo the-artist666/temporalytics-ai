@@ -27,17 +27,20 @@ else:
     logger.info("COINGECKO_API_KEY loaded successfully")
 
 # Initialize components
-st.set_page_config(page_title="Temporalytics AI", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="Temporalytics AI", layout="wide", initial_sidebar_state="collapsed")
 with open("style.css") as f:
     st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
+st.markdown('<link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap" rel="stylesheet">', unsafe_allow_html=True)
 
 # Sidebar
 with st.sidebar:
     st.markdown("<h1 class='sidebar-title'>Temporalytics AI</h1>", unsafe_allow_html=True)
-    st.markdown("<p class='sidebar-subtitle'>Your Crypto Trading Companion</p>", unsafe_allow_html=True)
+    st.markdown("<p class='sidebar-subtitle'>Advanced Crypto Insights</p>", unsafe_allow_html=True)
     st.markdown("---")
-    st.markdown("**Navigation**")
-    page = st.radio("Go to", ["Market Overview", "Portfolio Tracker", "Technical Analysis", "Financial Advisor"])
+    theme = st.selectbox("Theme", ["Dark", "Light"])
+    if theme == "Light":
+        st.markdown("<style>body { background: linear-gradient(135deg, #f3f4f6 0%, #e5e7eb 100%); color: #1f2937; } .title, .section-header { color: #2563eb; } .metric-value { color: #16a34a; } .sidebar-title { color: #2563eb; } .advisor-box { background: #fff; } .alert-box { background: #fff; }</style>", unsafe_allow_html=True)
+    page = st.radio("Navigate", ["Market Overview", "Portfolio Tracker", "Technical Analysis", "Financial Advisor"])
 
 # Initialize components
 fetcher = CoinGeckoFetcher(api_key=api_key)
@@ -45,6 +48,10 @@ feature_engine = FeatureEngine()
 kalman = KalmanFilter()
 advisor = FinancialAdvisor()
 trainer = ModelTrainer()
+
+# Test API key
+api_status = "Pro" if fetcher.test_api_key() else "Free (fallback)"
+st.markdown(f"<p class='metric-source'>API Status: {api_status}</p>", unsafe_allow_html=True)
 
 # List of coins
 COINS = ["bitcoin", "ethereum", "solana", "binancecoin", "xrp", "cardano", "dogecoin", "polkadot", "chainlink", "polygon"]
@@ -57,13 +64,11 @@ def load_data_and_models():
     coin_scalers = {}
     for coin in COINS:
         try:
-            # Fetch 90 days of daily data
             df = fetcher.fetch_historical_data(coin, "usd", days=90, interval="daily")
             df = feature_engine.compute_technical_indicators(df, {coin: df})
             df = feature_engine.compute_tdm_metrics(df)
             df['smoothed_close'] = kalman.filter(df, 'close')
             coin_data[coin] = df
-            # Train or load model
             model, scaler = trainer.train_model(df, coin)
             coin_models[coin] = model
             coin_scalers[coin] = scaler
@@ -78,7 +83,16 @@ with st.spinner("Loading market data..."):
 
 # Header
 st.markdown("<h1 class='title'>Temporalytics AI</h1>", unsafe_allow_html=True)
-st.markdown("<p class='subtitle'>Advanced Cryptocurrency Analysis & Trading Advisor</p>", unsafe_allow_html=True)
+st.markdown("<p class='subtitle'>Real-Time Crypto Analysis & Trading Insights</p>", unsafe_allow_html=True)
+
+# Price Alerts
+with st.expander("Set Price Alerts", expanded=False):
+    alert_coin = st.selectbox("Select Coin for Alert", COINS, key="alert_coin")
+    alert_price = st.number_input("Alert Price (USD)", min_value=0.0, step=0.01, key="alert_price")
+    if st.button("Set Alert"):
+        price, _ = fetcher.fetch_realtime_price(alert_coin, "usd")
+        if price and abs(price - alert_price) / price < 0.05:
+            st.markdown(f"<div class='alert-box'>Alert: {alert_coin.capitalize()} is near ${alert_price:,.2f} (Current: ${price:,.2f})!</div>", unsafe_allow_html=True)
 
 # Page Navigation
 if page == "Market Overview":
@@ -97,6 +111,13 @@ if page == "Market Overview":
             "Source": provider
         })
     st.dataframe(market_data, use_container_width=True)
+    # Volatility Heatmap
+    if len(coin_data) > 1:
+        st.markdown("<h3 class='section-header'>Volatility Heatmap</h3>", unsafe_allow_html=True)
+        vol_df = pd.DataFrame({coin: df['volatility'].iloc[-1] for coin, df in coin_data.items() if df is not None}, index=["Volatility"])
+        fig = px.imshow(vol_df, text_auto=".2%", color_continuous_scale="Viridis", labels=dict(color="Volatility"))
+        fig.update_layout(template="plotly_dark" if theme == "Dark" else "plotly_white", font=dict(size=14))
+        st.plotly_chart(fig, use_container_width=True)
 
 elif page == "Portfolio Tracker":
     st.markdown("<h2 class='section-header'>Portfolio Tracker</h2>", unsafe_allow_html=True)
@@ -115,16 +136,15 @@ elif page == "Portfolio Tracker":
                 portfolio_data.append({"Coin": coin.capitalize(), "Holdings": holdings, "Value (USD)": f"${value:,.2f}"})
         st.markdown(f"<p class='metric-value'>Total Portfolio Value: ${total_value:,.2f}</p>", unsafe_allow_html=True)
         st.dataframe(portfolio_data, use_container_width=True)
-
-        # Portfolio Allocation Chart
         fig = px.pie(
             pd.DataFrame(portfolio_data), 
             values="Value (USD)", 
             names="Coin", 
             title="Portfolio Allocation",
-            color_discrete_sequence=px.colors.qualitative.Bold
+            color_discrete_sequence=px.colors.qualitative.Bold,
+            hover_data=["Holdings"]
         )
-        fig.update_layout(template="plotly_dark", font=dict(size=14))
+        fig.update_layout(template="plotly_dark" if theme == "Dark" else "plotly_white", font=dict(size=14))
         st.plotly_chart(fig, use_container_width=True)
 
 elif page == "Technical Analysis":
@@ -136,12 +156,14 @@ elif page == "Technical Analysis":
         fig = make_subplots(
             rows=4, cols=1, shared_xaxes=True, 
             vertical_spacing=0.05, 
-            subplot_titles=("Price & Indicators", "Volume", "TDM Metrics", "Risk-Reward"),
+            subplot_titles=("Price & Indicators", "Volume", "TDM Metrics", "Volatility Bands"),
             row_heights=[0.5, 0.2, 0.2, 0.1]
         )
         fig.add_trace(go.Candlestick(
             x=df.index, open=df['open'], high=df['high'], low=df['low'], close=df['close'], 
-            name="Price", increasing_line_color="#22c55e", decreasing_line_color="#ef4444"
+            name="Price", increasing_line_color="#22c55e", decreasing_line_color="#ef4444",
+            hoverinfo="x+y+text", text=[f"Open: ${o:,.2f}<br>High: ${h:,.2f}<br>Low: ${l:,.2f}<br>Close: ${c:,.2f}" 
+                                       for o, h, l, c in zip(df['open'], df['high'], df['low'], df['close'])]
         ), row=1, col=1)
         fig.add_trace(go.Scatter(x=df.index, y=df['smoothed_close'], name="Smoothed Price", line=dict(color="#f59e0b")), row=1, col=1)
         fig.add_trace(go.Scatter(x=df.index, y=df['sma_20'], name="SMA 20", line=dict(color="#a855f7")), row=1, col=1)
@@ -152,13 +174,22 @@ elif page == "Technical Analysis":
         fig.add_trace(go.Scatter(x=df.index, y=df['trend'], name="Trend", line=dict(color="#ef4444")), row=3, col=1)
         fig.add_trace(go.Scatter(x=df.index, y=df['momentum'], name="Momentum", line=dict(color="#22c55e")), row=3, col=1)
         fig.add_trace(go.Scatter(x=df.index, y=df['conviction'], name="Conviction", line=dict(color="#f59e0b")), row=3, col=1)
-        # Risk-Reward Ratio
-        latest_price = df['close'].iloc[-1]
-        rr_ratio = (latest_price * 1.10 - latest_price) / (latest_price - latest_price * 0.95)  # 10% TP, 5% SL
-        fig.add_trace(go.Bar(x=[rr_ratio], y=["Risk-Reward"], name="R:R Ratio", marker_color="#f59e0b"), row=4, col=1)
+        fig.add_trace(go.Scatter(x=df.index, y=df['volatility'], name="Volatility", line=dict(color="#f59e0b")), row=4, col=1)
         fig.update_layout(
-            xaxis_rangeslider_visible=False, height=1000, template="plotly_dark",
+            xaxis_rangeslider_visible=True, height=1000, template="plotly_dark" if theme == "Dark" else "plotly_white",
             showlegend=True, font=dict(size=14), margin=dict(l=20, r=20, t=50, b=20)
+        )
+        st.plotly_chart(fig, use_container_width=True)
+
+        # 3D Price Surface
+        st.markdown("<h3 class='section-header'>3D Price Surface</h3>", unsafe_allow_html=True)
+        z = np.array([df['close'].values, df['smoothed_close'].values])
+        fig = go.Figure(data=[go.Surface(z=z, x=df.index, y=['Price', 'Smoothed'], colorscale="Viridis")])
+        fig.update_layout(
+            title="Price vs Smoothed Price Surface", 
+            scene=dict(xaxis_title="Date", yaxis_title="Type", zaxis_title="Price"),
+            template="plotly_dark" if theme == "Dark" else "plotly_white", 
+            height=600
         )
         st.plotly_chart(fig, use_container_width=True)
 
@@ -182,8 +213,8 @@ elif page == "Technical Analysis":
         cols = st.columns(3)
         for i, (scenario, price) in enumerate(scenarios.items()):
             with cols[i]:
-                mae = 0.05 * df['close'].iloc[-1]  # Mock MAE
-                r2 = 0.85  # Mock R²
+                mae = 0.05 * df['close'].iloc[-1]
+                r2 = 0.85
                 st.markdown(
                     f"<div class='metric-card'><h3>{scenario}</h3><p class='metric-value'>${price:,.2f}</p><p class='metric-source'>MAE: {mae:.2f}, R²: {r2:.2f}, TDM Accuracy: {tdm_accuracy:.2%}</p></div>",
                     unsafe_allow_html=True
@@ -196,18 +227,18 @@ elif page == "Technical Analysis":
                 subplot_titles=("RSI & Stochastic", "MACD", "Ichimoku Cloud", "Volume Profile"),
                 row_heights=[0.25, 0.25, 0.25, 0.25]
             )
-            fig.add_trace(go.Scatter(x=df.index, y=df['rsi'], name="RSI", line=dict(color="#a855f7")), row=1, col=1)
-            fig.add_trace(go.Scatter(x=df.index, y=df['stoch'], name="Stochastic", line=dict(color="#22c55e")), row=1, col=1)
-            fig.add_trace(go.Scatter(x=df.index, y=df['macd'], name="MACD", line=dict(color="#3b82f6")), row=2, col=1)
-            fig.add_trace(go.Scatter(x=df.index, y=df['macd_signal'], name="Signal", line=dict(color="#f59e0b")), row=2, col=1)
-            fig.add_trace(go.Scatter(x=df.index, y=df['ichimoku_tenkan'], name="Tenkan", line=dict(color="#3b82f6")), row=3, col=1)
-            fig.add_trace(go.Scatter(x=df.index, y=df['ichimoku_kijun'], name="Kijun", line=dict(color="#f59e0b")), row=3, col=1)
+            fig.add_trace(go.Scatter(x=df.index, y=df['rsi'], name="RSI", line=dict(color="#a855f7"), hoverinfo="x+y+text"), row=1, col=1)
+            fig.add_trace(go.Scatter(x=df.index, y=df['stoch'], name="Stochastic", line=dict(color="#22c55e"), hoverinfo="x+y+text"), row=1, col=1)
+            fig.add_trace(go.Scatter(x=df.index, y=df['macd'], name="MACD", line=dict(color="#3b82f6"), hoverinfo="x+y+text"), row=2, col=1)
+            fig.add_trace(go.Scatter(x=df.index, y=df['macd_signal'], name="Signal", line=dict(color="#f59e0b"), hoverinfo="x+y+text"), row=2, col=1)
+            fig.add_trace(go.Scatter(x=df.index, y=df['ichimoku_tenkan'], name="Tenkan", line=dict(color="#3b82f6"), hoverinfo="x+y+text"), row=3, col=1)
+            fig.add_trace(go.Scatter(x=df.index, y=df['ichimoku_kijun'], name="Kijun", line=dict(color="#f59e0b"), hoverinfo="x+y+text"), row=3, col=1)
             fig.add_trace(go.Scatter(x=df.index, y=df['ichimoku_senkou_a'], name="Senkou A", line=dict(color="#22c55e"), fill="tonexty"), row=3, col=1)
             fig.add_trace(go.Scatter(x=df.index, y=df['ichimoku_senkou_b'], name="Senkou B", line=dict(color="#ef4444"), fill="tonexty"), row=3, col=1)
             volume_bins = pd.cut(df['close'], bins=20)
             volume_profile = df.groupby(volume_bins)['volume'].sum()
             fig.add_trace(go.Bar(x=volume_profile.values, y=volume_profile.index.map(lambda x: x.mid), name="Volume Profile", orientation="h", marker_color="#3b82f6"), row=4, col=1)
-            fig.update_layout(height=1000, template="plotly_dark", font=dict(size=14))
+            fig.update_layout(height=1000, template="plotly_dark" if theme == "Dark" else "plotly_white", font=dict(size=14))
             st.plotly_chart(fig, use_container_width=True)
 
         # Correlation Heatmap
@@ -216,7 +247,7 @@ elif page == "Technical Analysis":
             close_df = pd.DataFrame({coin: df['close'] for coin, df in coin_data.items()})
             corr = close_df.corr()
             fig = px.imshow(corr, text_auto=".2f", color_continuous_scale="RdBu", labels=dict(color="Correlation"))
-            fig.update_layout(template="plotly_dark", font=dict(size=14))
+            fig.update_layout(template="plotly_dark" if theme == "Dark" else "plotly_white", font=dict(size=14))
             st.plotly_chart(fig, use_container_width=True)
 
 elif page == "Financial Advisor":
@@ -236,17 +267,15 @@ elif page == "Financial Advisor":
             st.markdown(f"<div class='advisor-box'><h3>Explanation</h3>{explanation}</div>", unsafe_allow_html=True)
             st.markdown("<h3>Recommendation</h3>", unsafe_allow_html=True)
             st.json(recommendation)
-            # Simulated Gains
             st.markdown("<h3 class='section-header'>Simulated Gains</h3>", unsafe_allow_html=True)
             sim_results = advisor.simulate_trades(coin_data[coin_id], recommendation)
             st.dataframe(sim_results, use_container_width=True)
-            # Risk-Reward Chart
             prediction = float(recommendation['Take-Profit'].replace('$', '').replace(',', ''))
             stop_loss = float(recommendation['Stop-Loss'].replace('$', '').replace(',', ''))
             current_price = coin_data[coin_id]['close'].iloc[-1]
             fig = go.Figure()
             fig.add_trace(go.Bar(x=["Current", "Take-Profit", "Stop-Loss"], y=[current_price, prediction, stop_loss], marker_color=["#3b82f6", "#22c55e", "#ef4444"]))
-            fig.update_layout(title="Risk-Reward Profile", template="plotly_dark", font=dict(size=14))
+            fig.update_layout(title="Risk-Reward Profile", template="plotly_dark" if theme == "Dark" else "plotly_white", font=dict(size=14))
             st.plotly_chart(fig, use_container_width=True)
         else:
             st.error(f"No data available for {coin_id.capitalize()}.")

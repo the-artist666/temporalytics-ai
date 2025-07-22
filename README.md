@@ -1,5 +1,5 @@
 Temporalytics AI
-A Streamlit-based cryptocurrency trading advisor that fetches real-time data from CoinGecko's Pro API, provides advanced technical analysis, and offers AI-driven trading recommendations with simulated gains.
+A Streamlit-based cryptocurrency trading advisor with real-time data from CoinGecko's Pro API, advanced technical analysis, and AI-driven trading recommendations with simulated gains.
 Installation
 
 Clone the repository:
@@ -8,7 +8,7 @@ cd temporalytics-ai
 
 
 Create a .env file with your CoinGecko API key:
-COINGECKO_API_KEY=your-api-key-here
+COINGECKO_API_KEY=CG-mCypHSj3Ci4JpGH96VmHoayY
 
 
 Create a virtual environment:
@@ -29,7 +29,7 @@ Deployment on Streamlit Cloud
 
 Push the repository to GitHub.
 Add your CoinGecko API key as a secret in Streamlit Cloud:
-Go to "Manage app" > "Secrets" and add:COINGECKO_API_KEY = "your-api-key-here"
+Go to "Manage app" > "Secrets" and add:COINGECKO_API_KEY = "CG-mCypHSj3Ci4JpGH96VmHoayY"
 
 
 
@@ -39,8 +39,9 @@ Reboot the app to deploy.
 
 Features
 
-Real-time data via CoinGecko Pro API.
+Real-time data via CoinGecko Pro API with authenticated requests.
 TDM hybrid metrics (Trend, Direction, Momentum) with accuracy.
-Advanced visualizations (candlestick, volume profile, correlation heatmap).
+Enhanced visualizations: interactive candlestick charts, volume profiles, correlation heatmaps, risk-reward charts.
 Short- and long-term trading recommendations with simulated gains.
 Risk management: 5% stop-loss, 10% take-profit, max 10% position size.
+Modern UI inspired by TradingView with sidebar navigation and dynamic charts.

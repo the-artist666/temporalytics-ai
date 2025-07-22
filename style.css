@@ -1,64 +1,37 @@
 body {
-    background-color: #1a1a1a;
-    color: #ffffff;
-    font-family: 'Inter', sans-serif;
+    font-family: 'Arial', sans-serif;
+    background-color: #1a202c;
+    color: #e2e8f0;
 }
-
 .title {
-    font-size: 3.5rem;
-    font-weight: 800;
+    font-size: 2.5em;
+    font-weight: bold;
     text-align: center;
-    color: #ffffff;
-    text-shadow: 0 0 15px rgba(59, 130, 246, 0.7);
-    animation: pulse 3s infinite;
-}
-
-.subtitle {
-    font-size: 1.5rem;
-    text-align: center;
-    color: #d1d5db;
-    margin-bottom: 2.5rem;
-}
-
-.section-header {
-    font-size: 2rem;
-    font-weight: 700;
     color: #3b82f6;
-    margin-top: 3rem;
-    margin-bottom: 1.5rem;
 }
-
-.metric-card {
-    background-color: #2d3748;
-    padding: 2rem;
-    border-radius: 0.75rem;
-    box-shadow: 0 0 15px rgba(59, 130, 246, 0.5);
+.subtitle {
+    font-size: 1.2em;
     text-align: center;
-    margin-bottom: 1.5rem;
-    transition: transform 0.3s ease;
+    color: #a0aec0;
 }
-
-.metric-card:hover {
-    transform: scale(1.05);
-}
-
-.metric-value {
-    font-size: 2.5rem;
+.section-header {
+    font-size: 1.8em;
     font-weight: bold;
     color: #3b82f6;
 }
-
-.metric-source {
-    font-size: 1rem;
-    color: #9ca3af;
-}
-
-.error {
-    color: #ef4444;
-    font-weight: 600;
-}
-
-.st-expander {
+.metric-card {
     background-color: #2d3748;
-    border-radius: 0.5rem;
-    box-shadow: 0 0 10px rgba(59
+    padding: 15px;
+    border-radius: 8px;
+    text-align: center;
+    margin: 10px 0;
+}
+.metric-value {
+    font-size: 1.5em;
+    font-weight: bold;
+    color: #22c55e;
+}
+.metric-source {
+    font-size: 0.9em;
+    color: #a0aec0;
+}

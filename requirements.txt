@@ -6,3 +6,4 @@ plotly>=5.10.0
 xgboost>=1.6.0
 scikit-learn>=1.1.0
 python-dotenv>=0.21.0
+weasyprint>=52.0

@@ -11,6 +11,9 @@ from core.advisor import FinancialAdvisor
 from core.model_trainer import ModelTrainer
 import logging
 import os
+from dotenv import load_dotenv
+
+load_dotenv()  # Load environment variables
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -20,7 +23,7 @@ with open("style.css") as f:
     st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
 
 # Initialize components
-fetcher = CoinGeckoFetcher()
+fetcher = CoinGeckoFetcher(api_key=os.getenv("COINGECKO_API_KEY"))
 feature_engine = FeatureEngine()
 kalman = KalmanFilter()
 advisor = FinancialAdvisor()
